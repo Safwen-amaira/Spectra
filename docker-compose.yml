@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  spectra:
+    build: .
+    container_name: spectra_hand_control
+    # Allow access to webcam and X11 (for mouse/keyboard simulation)
+    devices:
+      - "/dev/video0:/dev/video0"
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./src:/app/src  # optional: for live code changes
+    stdin_open: true
+    tty: true
+    # Run with host network to allow UI interaction
+    network_mode: host
