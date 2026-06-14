@@ -25,8 +25,6 @@ def main():
     prev_gestures = set()
     # State for hand movement tracking (scrolling)
     prev_hand_center = None  # (x, y) normalized
-    # For smoothing
-    alpha = 0.5  # smoothing factor for movement
 
     while True:
         ret, frame = cap.read()
@@ -48,9 +46,9 @@ def main():
 
             # Get index tip position for cursor tracking (normalized x,y)
             index_tip = first_hand[GestureRecognizer.INDEX_TIP]
-            index_tip_pos = (index_tip[0], index_tip[1])  # x, y in 0..1
+            index_tip_pos = (index_tip[0], index_tip[1])
 
-            # Compute hand center (wrist or average of palm)
+            # Compute hand center (wrist)
             wrist = first_hand[GestureRecognizer.WRIST]
             hand_center = (wrist[0], wrist[1])
 
@@ -62,15 +60,17 @@ def main():
         if 'index_middle_up' in all_gestures and prev_hand_center is not None and hand_center is not None:
             dx = hand_center[0] - prev_hand_center[0]
             dy = hand_center[1] - prev_hand_center[1]
-            # Smooth and scale
+            # Scale for sensitivity
             dx = dx * action_controller.cursor_speed
             dy = dy * action_controller.cursor_speed
             hand_movement = (dx, dy)
         elif hand_center is not None:
-            # reset previous center if gesture not active
-            prev_hand_center = hand_center
+            # Update previous center even if gesture not active? No, only when active we want delta.
+            # We need to update prev_hand_center always for next frame's delta, but careful.
+            # Actually we should update prev_hand_center regardless, so that when gesture becomes active we have a baseline.
+            pass
 
-        # Execute actions (pass double_tap flag)
+        # Execute actions
         action_controller.execute_gestures(
             all_gestures,
             index_tip_pos=index_tip_pos if 'only_index_up' in all_gestures else None,

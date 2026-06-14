@@ -90,7 +90,7 @@ class GestureRecognizer:
     def recognize_single_hand_gestures(self, landmarks: List[Tuple[float, float, float]]) -> Set[str]:
         """
         Recognize gestures from one hand.
-        Returns set of gesture names: 'only_index_up', 'index_middle_up', 'fist', 'click', 'zoom_in', 'zoom_out', 'double_click'
+        Returns set of gesture names: 'only_index_up', 'index_middle_up', 'fist', 'click', 'zoom_in', 'zoom_out'
         """
         gestures = set()
         finger_states = self.get_finger_states(landmarks)
@@ -118,17 +118,10 @@ class GestureRecognizer:
         if self.is_pinch(landmarks, self.RING_TIP):
             gestures.add('zoom_out')
 
-        # Double tap detection: index finger goes down twice
-        # We simulate by checking if index extended changed from True to False quickly
-        now = time.time()
-        # We'll check in the main loop by comparing with previous frame
-
         return gestures
 
     def detect_double_tap(self, current_gestures: Set[str], prev_gestures: Set[str]) -> bool:
         """Detect double tap on index finger (down-up-down within cooldown)."""
-        # We need to know if index was previously up and now not up (a tap)
-        # Simplified: if 'only_index_up' appears twice within 0.5 seconds
         now = time.time()
         tap_detected = False
         if 'only_index_up' in current_gestures and 'only_index_up' not in prev_gestures:
@@ -141,7 +134,7 @@ class GestureRecognizer:
     def get_two_hand_gestures(self, hand_landmarks_list: List[List[Tuple[float, float, float]]]) -> Set[str]:
         """
         Detect gestures involving two hands: both thumb-index pinch (together) and clap.
-        Returns set of 'keyboard_on', 'keyboard_off'
+        Returns set of 'keyboard_toggle', 'clap'
         """
         if len(hand_landmarks_list) < 2:
             return set()
@@ -155,7 +148,7 @@ class GestureRecognizer:
 
         if left_pinch and right_pinch:
             # Both hands pinching thumb+index
-            # Measure distance between left thumb and right thumb (or between hands)
+            # Measure distance between left thumb and right thumb
             left_thumb = left[self.THUMB_TIP]
             right_thumb = right[self.THUMB_TIP]
             dist = self._distance(left_thumb, right_thumb)

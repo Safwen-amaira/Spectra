@@ -4,7 +4,7 @@ Action controller with advanced features: cursor tracking, scrolling, double cli
 
 import pyautogui
 import time
-from typing import Set, Tuple
+from typing import Set, Tuple, Optional
 
 class ActionController:
     def __init__(self, screen_width=None, screen_height=None):
@@ -131,7 +131,7 @@ class ActionController:
                     self.last_scroll_direction = direction
             self.last_scroll_time = now
             # For horizontal scroll, use left/right arrow keys (or shift+scroll)
-            for _ in range(amount):
+            for _ in range(min(amount, 10)):  # limit to 10 presses per frame
                 if direction == 'right':
                     pyautogui.press('right')
                 else:
@@ -189,7 +189,4 @@ class ActionController:
         if 'index_middle_up' in gestures and hand_movement is not None:
             dx, dy = hand_movement
             self.perform_scroll(dx, dy)
-
-        # Two-hand gestures (to be implemented in main)
-        # We'll add a separate method for two-hand gestures
 

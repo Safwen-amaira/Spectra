@@ -8,7 +8,6 @@ import mediapipe as mp
 import numpy as np
 from typing import List, Tuple, Optional
 
-
 class HandTracker:
     """Hand landmark detector and tracker."""
 
@@ -17,15 +16,6 @@ class HandTracker:
                  max_num_hands: int = 2,
                  min_detection_confidence: float = 0.5,
                  min_tracking_confidence: float = 0.5):
-        """
-        Initialize MediaPipe Hands solution.
-
-        Args:
-            static_image_mode: Whether to treat input as static images.
-            max_num_hands: Maximum number of hands to detect.
-            min_detection_confidence: Minimum confidence for detection.
-            min_tracking_confidence: Minimum confidence for tracking.
-        """
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=static_image_mode,
@@ -37,17 +27,6 @@ class HandTracker:
         self.mp_drawing_styles = mp.solutions.drawing_styles
 
     def process_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, Optional[List]]:
-        """
-        Process a BGR frame and draw hand landmarks.
-
-        Args:
-            frame: Input image in BGR format.
-
-        Returns:
-            Tuple of (annotated_frame, hand_landmarks_list)
-            hand_landmarks_list is a list of lists of (x,y,z) for each hand.
-        """
-        # Convert BGR to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(rgb_frame)
 
@@ -56,11 +35,9 @@ class HandTracker:
 
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
-                # Extract landmarks as (x, y, z) normalized coordinates
                 landmarks = [(lm.x, lm.y, lm.z) for lm in hand_landmarks.landmark]
                 hand_landmarks_list.append(landmarks)
 
-                # Draw landmarks and connections on the annotated frame
                 self.mp_drawing.draw_landmarks(
                     annotated_frame,
                     hand_landmarks,
@@ -72,6 +49,5 @@ class HandTracker:
         return annotated_frame, hand_landmarks_list
 
     def release(self):
-        """Release MediaPipe resources."""
         self.hands.close()
 
