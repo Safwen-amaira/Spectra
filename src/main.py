@@ -18,14 +18,10 @@ def main():
         print("Error: Could not open webcam.")
         sys.exit(1)
 
-    # Set higher resolution for better tracking? Optional
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
     print("Spectra Advanced started. Press 'q' to quit.")
 
     prev_gestures = set()
-    prev_hand_center = None
+    prev_hand_center = None  # for scroll movement
 
     while True:
         ret, frame = cap.read()
@@ -43,27 +39,33 @@ def main():
             gestures = gesture_recognizer.recognize_single_hand_gestures(first_hand)
             all_gestures.update(gestures)
 
+            # Index tip for cursor
             index_tip = first_hand[GestureRecognizer.INDEX_TIP]
-            # No inversion here; inversion done in action_controller
             index_tip_pos = (index_tip[0], index_tip[1])
 
+            # Hand center (wrist) for scroll movement
             wrist = first_hand[GestureRecognizer.WRIST]
             hand_center = (wrist[0], wrist[1])
 
+        # Double tap detection
         double_tap = gesture_recognizer.detect_double_tap(all_gestures, prev_gestures)
 
+        # Compute hand movement for scrolling only if index+middle gesture is active
         hand_movement = None
         if 'index_middle_up' in all_gestures and prev_hand_center is not None and hand_center is not None:
+            # Raw delta (normalized coordinates)
             dx = hand_center[0] - prev_hand_center[0]
             dy = hand_center[1] - prev_hand_center[1]
-            # Increase sensitivity for scrolling
-            dx = dx * 8.0
-            dy = dy * 8.0
+            # No scaling here; scaling happens inside action_controller.perform_scroll
             hand_movement = (dx, dy)
-        # Update prev_hand_center regardless (if hand_center exists)
-        if hand_center is not None:
+            # Update previous center while gesture active for continuous delta
+            prev_hand_center = hand_center
+        elif hand_center is not None:
+            # If gesture not active, just store current center for future reference
+            # But do not update if gesture was just deactivated? We'll store anyway.
             prev_hand_center = hand_center
 
+        # Execute actions
         action_controller.execute_gestures(
             all_gestures,
             index_tip_pos=index_tip_pos if 'only_index_up' in all_gestures else None,
@@ -81,6 +83,7 @@ def main():
                     action_controller.toggle_virtual_keyboard()
 
         prev_gestures = all_gestures.copy()
+        # Note: prev_hand_center already updated conditionally
 
         cv2.imshow('Spectra - Advanced Hand Control', annotated_frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):

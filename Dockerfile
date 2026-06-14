@@ -1,6 +1,5 @@
 FROM python:3.11-slim
 
-# Install system dependencies for OpenCV, X11, and tkinter (for pyautogui/mouseinfo)
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglx-mesa0 \
@@ -11,7 +10,8 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     xauth \
-    python3-tk \
+    onboard \
+    xdotool \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -21,6 +21,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ ./src/
 
-# Run the application
 CMD ["python", "-m", "src.main"]
 
