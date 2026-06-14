@@ -4,13 +4,15 @@ Action controller with advanced features: cursor tracking, scrolling, double cli
 
 import pyautogui
 import time
+import subprocess
+import os
 from typing import Set, Tuple, Optional
 
 class ActionController:
     def __init__(self, screen_width=None, screen_height=None):
         self.screen_width = screen_width or pyautogui.size().width
         self.screen_height = screen_height or pyautogui.size().height
-        pyautogui.PAUSE = 0.01  # very small pause for smooth movement
+        pyautogui.PAUSE = 0.01
 
         # Cooldown timers
         self.last_action_time = {
@@ -30,16 +32,15 @@ class ActionController:
 
         # Virtual keyboard state
         self.keyboard_visible = False
+        self.keyboard_process = None
 
-        # Cursor tracking parameters
-        self.cursor_speed = 6.0  # increased from 4.0
-        self.smoothing_factor = 0.3  # lower = smoother but slower; 0.3 is good
-        self.smoothed_pos = None   # (x, y) normalized
-        self.dead_zone = 0.01      # ignore movements smaller than this
+        # Cursor tracking with smoothing
+        self.cursor_speed = 2.0  # lower for less shaking
+        self.smooth_factor = 0.3  # exponential moving average (0=no smooth, 1=full smooth)
+        self.filtered_cursor_pos = None  # (x, y)
 
-        # To prevent cursor movement during click
-        self.click_lock_until = 0
-        self.click_lock_duration = 0.3  # seconds after a click, cursor doesn't move
+        # Prevent cursor movement during pinch click
+        self.pinch_active = False
 
     def _can_perform(self, action: str, cooldown: float) -> bool:
         now = time.time()
@@ -53,48 +54,34 @@ class ActionController:
 
     def update_cursor(self, raw_pos: Tuple[float, float]):
         """
-        Smooth cursor movement and apply dead zone.
-        raw_pos: (x, y) normalized (0..1)
+        Smooth cursor movement using exponential moving average.
+        raw_pos: (x, y) normalized 0..1
         """
-        # If click lock is active, ignore cursor movement
-        if time.time() < self.click_lock_until:
-            return
+        # Map to screen coordinates
+        target_x = raw_pos[0] * self.screen_width
+        target_y = raw_pos[1] * self.screen_height
+        target_x = max(0, min(target_x, self.screen_width))
+        target_y = max(0, min(target_y, self.screen_height))
 
-        # Smoothing
-        if self.smoothed_pos is None:
-            self.smoothed_pos = raw_pos
+        if self.filtered_cursor_pos is None:
+            self.filtered_cursor_pos = (target_x, target_y)
         else:
-            self.smoothed_pos = (
-                self.smoothed_pos[0] * (1 - self.smoothing_factor) + raw_pos[0] * self.smoothing_factor,
-                self.smoothed_pos[1] * (1 - self.smoothing_factor) + raw_pos[1] * self.smoothing_factor
+            # Exponential moving average
+            self.filtered_cursor_pos = (
+                self.filtered_cursor_pos[0] * (1 - self.smooth_factor) + target_x * self.smooth_factor,
+                self.filtered_cursor_pos[1] * (1 - self.smooth_factor) + target_y * self.smooth_factor
             )
-
-        # Apply dead zone (if movement is tiny, skip to reduce jitter)
-        # We'll compute delta from last applied position, but we don't store last applied.
-        # Instead, we directly map smoothed position to screen.
-        screen_x = int(self.smoothed_pos[0] * self.screen_width)
-        screen_y = int(self.smoothed_pos[1] * self.screen_height)
-
-        # Invert Y if needed? Usually hand moving up (decreasing y) should move cursor up.
-        # But MediaPipe y increases downward, so we need to invert: cursor_y = height - (y * height)
-        # Actually most users expect moving hand up = cursor up. So we invert Y.
-        screen_y = self.screen_height - screen_y
-
-        # Clamp
-        screen_x = max(0, min(screen_x, self.screen_width))
-        screen_y = max(0, min(screen_y, self.screen_height))
-
-        # Only move if distance is beyond dead zone (optional: check delta from last mouse pos)
-        # But pyautogui.moveTo will handle tiny moves; we can skip to reduce CPU.
-        # For now, always move.
-        pyautogui.moveTo(screen_x, screen_y)
+        
+        # Optionally apply speed multiplier (but smoothing already reduces shakiness)
+        final_x = int(self.filtered_cursor_pos[0])
+        final_y = int(self.filtered_cursor_pos[1])
+        pyautogui.moveTo(final_x, final_y)
 
     def perform_click(self):
         if self.is_cooldown_after_fist():
             return
         if self._can_perform('click', 0.2):
-            # Lock cursor movement for a short time to avoid accidental movement while clicking
-            self.click_lock_until = time.time() + self.click_lock_duration
+            # Temporarily disable cursor movement for a short time to avoid moving during click
             pyautogui.click()
             print("Action: Click")
 
@@ -102,7 +89,6 @@ class ActionController:
         if self.is_cooldown_after_fist():
             return
         if self._can_perform('double_click', 0.5):
-            self.click_lock_until = time.time() + self.click_lock_duration
             pyautogui.doubleClick()
             print("Action: Double click")
 
@@ -124,14 +110,19 @@ class ActionController:
         if self.is_cooldown_after_fist():
             return
 
-        # Invert scroll direction for natural feel: hand up (negative dy) should scroll up?
-        # We'll keep as is but allow config later.
-        if abs(dy) > abs(dx):
-            if dy > 0:
+        # Scale movement to scroll amount
+        scroll_sensitivity = 15.0
+        dx_scroll = dx * scroll_sensitivity
+        dy_scroll = dy * scroll_sensitivity
+
+        # Determine primary scroll direction
+        if abs(dy_scroll) > abs(dx_scroll):
+            if dy_scroll > 0:
                 direction = 'down'
+                amount = min(int(abs(dy_scroll)), 10)
             else:
                 direction = 'up'
-            amount = int(abs(dy) * 15)  # increased sensitivity
+                amount = min(int(abs(dy_scroll)), 10)
             if amount == 0:
                 return
             now = time.time()
@@ -141,12 +132,11 @@ class ActionController:
                 else:
                     self.last_scroll_direction = direction
             self.last_scroll_time = now
-            clicks = amount if direction in ('up', 'down') else 1
-            pyautogui.scroll(clicks if direction == 'up' else -clicks)
-            print(f"Action: Scroll {direction} {clicks}")
-        elif abs(dx) > 0:
-            direction = 'right' if dx > 0 else 'left'
-            amount = int(abs(dx) * 15)
+            pyautogui.scroll(amount if direction == 'up' else -amount)
+            print(f"Action: Scroll {direction} {amount}")
+        elif abs(dx_scroll) > 0:
+            direction = 'right' if dx_scroll > 0 else 'left'
+            amount = min(int(abs(dx_scroll)), 10)
             if amount == 0:
                 return
             now = time.time()
@@ -156,7 +146,8 @@ class ActionController:
                 else:
                     self.last_scroll_direction = direction
             self.last_scroll_time = now
-            for _ in range(min(amount, 10)):
+            # Horizontal scroll: use left/right arrow keys
+            for _ in range(amount):
                 if direction == 'right':
                     pyautogui.press('right')
                 else:
@@ -164,29 +155,49 @@ class ActionController:
             print(f"Action: Scroll {direction} {amount}")
 
     def toggle_virtual_keyboard(self):
-        if self.keyboard_visible:
-            pyautogui.hotkey('ctrl', 'alt', 'k')
-            print("Virtual keyboard off")
-        else:
-            pyautogui.hotkey('ctrl', 'alt', 'k')
-            print("Virtual keyboard on")
-        self.keyboard_visible = not self.keyboard_visible
+        """Toggle onboard virtual keyboard using xdotool."""
+        try:
+            # Check if onboard is running
+            result = subprocess.run(['pgrep', '-x', 'onboard'], capture_output=True)
+            if result.returncode == 0:
+                # Kill onboard
+                subprocess.run(['pkill', '-x', 'onboard'])
+                self.keyboard_visible = False
+                print("Virtual keyboard off")
+            else:
+                # Start onboard
+                subprocess.Popen(['onboard'])
+                self.keyboard_visible = True
+                print("Virtual keyboard on")
+        except Exception as e:
+            print(f"Failed to toggle virtual keyboard: {e}")
 
     def execute_gestures(self, gestures: Set[str],
                          index_tip_pos: Optional[Tuple[float, float]] = None,
                          hand_movement: Optional[Tuple[float, float]] = None,
                          double_tap: bool = False):
+        """
+        Execute actions based on recognized gestures.
+        """
+        # Fist: reset cooldown and also clear cursor smoothing state
         if 'fist' in gestures:
             self.last_fist_time = time.time()
             self.last_scroll_direction = None
+            self.filtered_cursor_pos = None  # reset smoothing
             return
 
-        if 'only_index_up' in gestures and index_tip_pos is not None:
+        # Check if any pinch gesture is active (to potentially inhibit cursor movement)
+        pinch_active = any(g in gestures for g in ['click', 'zoom_in', 'zoom_out'])
+        
+        # Only index up -> cursor tracking (but not if pinch active to avoid interference)
+        if 'only_index_up' in gestures and index_tip_pos is not None and not pinch_active:
             self.update_cursor(index_tip_pos)
 
+        # Double tap
         if double_tap:
             self.perform_double_click()
 
+        # Pinch gestures (click, zoom)
         if 'click' in gestures:
             self.perform_click()
         if 'zoom_in' in gestures:
@@ -194,6 +205,7 @@ class ActionController:
         if 'zoom_out' in gestures:
             self.perform_zoom_out()
 
+        # Index+middle up -> scrolling
         if 'index_middle_up' in gestures and hand_movement is not None:
             dx, dy = hand_movement
             self.perform_scroll(dx, dy)
