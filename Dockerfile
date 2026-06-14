@@ -1,7 +1,6 @@
 FROM python:3.11-slim
 
-# Install system dependencies for OpenCV and X11 (for pyautogui)
-# Note: Debian Trixie uses different package names
+# Install system dependencies for OpenCV, X11, and tkinter (for pyautogui/mouseinfo)
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglx-mesa0 \
@@ -12,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     xauth \
+    python3-tk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
